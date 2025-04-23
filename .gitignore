@@ -1,0 +1,13 @@
+*.exe
+*.com
+*.obj
+*.lst
+*.bak
+*.tmp
+*.bin
+*.map
+*.log
+*.o
+*.asm~     ; backup files created by some editors
+*.DS_Store ; macOS system file
+Thumbs.db  ; Windows thumbnail cache
