@@ -11,17 +11,88 @@ snake_body    db 0x02  ; Character code for the snake's body (Used in the 'draw_
 snake_color   db 0x0A  ; Color code for the snake (light green in this case) (Used in the 'draw_snake' subroutine)
 
 current_dir   db 0x4D  ; Direction of the snake's movement (0x4D corresponds to 'Right') (Used in 'move_snake' subroutine)
-snake_len     dw 10    ; Initial length of the snake (starting with a length of 10) (Used in the 'move_snake' and 'draw_snake' subroutines)
+snake_len     dw 3   ; Initial length of the snake (starting with a length of 10) (Used in the 'move_snake' and 'draw_snake' subroutines)
 snake_body_pos times 100 dw 0  ; Array holding the positions of the snake's body parts (initialized with 0) (Used in the 'move_snake', 'draw_snake', 'collision_check' subroutines)
 tail_pos      dw 0     ; Position of the snake's tail (Used in 'move_snake' and 'draw_snake' subroutines)
-speed_level   dw 1     ; Speed level of the game (1 is the initial speed) (Used in the 'game_loop' subroutine for controlling game speed)
+speed_level   dw 2   ; Speed level of the game (1 is the initial speed) (Used in the 'game_loop' subroutine for controlling game speed)
 last_key      db 0     ; Stores the last key pressed by the user for direction control (Used in the 'handle_input' and 'game_loop' subroutines)
 
+;game over box
 game_over_lines:
     db 0xC9,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xBB,0  
     db 0xBA,' GAME OVER ',0xBA,0                                           
     db 0xC8,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xBC,0  
 box_attr db 0x4E  ; Yellow on red
+
+; Food generation data
+food_pos      dw 0       ; Position of current food
+food_char     db 0x04    ; Diamond character (♦)
+food_color    db 0x0C    ; Light red color
+
+;score counter
+score         dw 0              ; Current score
+score_str     db 'SCORE: '      ; Score label
+score_buffer  db '00000$'       ; Buffer for score digits (5 digits max)
+
+;--------------------------- FOOD GENERATION ------------------------------
+GenerateFood:
+    pusha
+.generate_new:
+    ; Get random X position (columns 2-78)
+    call GetRandom
+    and ax, 0x7F         ; Mask to 0-127
+    cmp ax, 78
+    ja .generate_new
+    cmp ax, 2
+    jb .generate_new
+    mov bx, ax           ; Store X in BX
+
+    ; Get random Y position (rows 1-23)
+    call GetRandom
+    and ax, 0x1F         ; Mask to 0-31
+    cmp ax, 23
+    ja .generate_new
+    cmp ax, 1
+    jb .generate_new
+
+    ; Calculate video memory offset: DI = (Y * 160) + (X * 2)
+    mov cx, 160
+    mul cx               ; AX = Y * 160
+    shl bx, 1            ; BX = X * 2
+    add ax, bx           ; AX = final position
+    mov di, ax
+
+    ; Check collision with snake body
+    mov cx, [snake_len]
+    mov si, 0
+.check_loop:
+    cmp di, [snake_body_pos + si]
+    je .generate_new     ; Collision found, try again
+    add si, 2
+    loop .check_loop
+
+    ; Valid position found - store it
+    mov [food_pos], di
+    popa
+    ret
+
+GetRandom:
+    ; Simple pseudo-random number generator using timer ticks
+    push es
+    mov ax, 0x0040
+    mov es, ax
+    mov ax, [es:0x006C]  ; BIOS timer ticks
+    rol ax, 5            ; Rotate for better randomness
+    pop es
+    ret
+
+;--------------------------- DRAW FOOD ------------------------------------
+DrawFood:
+    mov di, [food_pos]
+    mov al, [food_char]
+    mov ah, [food_color]
+    mov [es:di], ax
+    ret
 
 GameOverScreen:
     ; Center position: row 12, column 34 (80-13)/2=33.5 → 34
@@ -103,7 +174,8 @@ wait_enter_esc:
 
 DrawFrame:
     ; Draws the frame of the game (top, sides, bottom, corners)
-    call DrawTop
+    call clrscn
+	call DrawTop
     call DrawSides
     call DrawBottom
     call DrawCorners
@@ -192,7 +264,9 @@ GameLoop:
     mov byte [last_key], 0
     call HandleInput
     call UpdateSnake
+	call DrawFood
     call DrawSnake
+	call DrawScore
     call Delay
     jmp GameLoop
 
@@ -316,10 +390,74 @@ UpdateSnake:
 .update_head:
     ; Update head position
     mov [snake_body_pos], di
+    
+    ; Check if head hit food
+    cmp di, [food_pos]
+    jne .no_food
+    
+	; Food collision detected - increase score and length
+    add word [score], 1  ; Increase score by 1 points
+    inc word [snake_len]
+    call GenerateFood
+    ; Food collision - increase length and generate new food
+    inc word [snake_len]
+    call GenerateFood
+    jmp .skip_tail_erase
+    
+.no_food:
+    ; Normal movement - erase tail
+    mov di, [tail_pos]
+    mov word [es:di], 0x0720  ; Space with white attribute
+    
+.skip_tail_erase:
     ret
 
 .game_over:
 	call GameOverScreen
+
+;--------------------------- DRAW SCORE DISPLAY ---------------------------
+DrawScore:
+    pusha
+    ; Set position (row 0, column 2)
+    mov di, 0*160 + 2*2
+    
+    ; Draw "SCORE: " text
+    mov si, score_str
+    mov cx, 6            ; Length of "SCORE: "
+    mov ah, 0x0E         ; Yellow on black
+.draw_label:
+    lodsb
+    mov [es:di], al
+    mov byte [es:di+1], 0x0E
+    add di, 2
+    loop .draw_label
+    
+    ; Convert score to ASCII
+    mov ax, [score]
+    mov bx, 10
+    lea si, [score_buffer + 4] ; Start from end of buffer
+    
+.fill_buffer:
+    xor dx, dx
+    div bx              ; AX = quotient, DX = remainder
+    add dl, '0'         ; Convert to ASCII
+    mov [si], dl
+    dec si
+    cmp si, score_buffer
+    jae .fill_buffer
+    
+    ; Draw score numbers
+    mov si, score_buffer
+    mov cx, 5
+.draw_numbers:
+    lodsb
+    mov [es:di], al
+    mov byte [es:di+1], 0x0E
+    add di, 2
+    loop .draw_numbers
+    
+    popa
+    ret
 
 Delay:
     ; Introduces a delay in the game loop to control game speed
@@ -395,4 +533,5 @@ init_game:
     sub di, 2
     mov [snake_body_pos + 4], di
     
+	call GenerateFood
     jmp GameLoop
