@@ -3,31 +3,40 @@ bits 16
 
 jmp start
 
-;-------------- DATA --------------
-; Splash data & border color
-title        db '   Snake Game BY sdnr   ', 0
-prompt       db ' Press [Enter] to Start or [Esc] to Exit ', 0
-border_col   db 0x0C      ; red-on-black
+; Data section
+title        db '   Snake Game BY sdnr   ', 0    ; Title of the game, displayed at the start (Used in the 'start_screen' subroutine)
+prompt       db ' Press [Enter] to Start or [Esc] to Exit ', 0  ; Prompt message for the user to start or exit the game (Used in the 'start_screen' subroutine)
+border_col   db 0x0C  ; Color code for the border (red in this case, using BIOS color codes) (Used in the 'draw_border' subroutine)
+snake_head    db 0x01  ; Character code for the snake's head (Used in the 'draw_snake' subroutine)
+snake_body    db 0x02  ; Character code for the snake's body (Used in the 'draw_snake' subroutine)
+snake_color   db 0x0A  ; Color code for the snake (light green in this case) (Used in the 'draw_snake' subroutine)
 
-;-------------- CODE --------------
-; clear screen (80×25)
+current_dir   db 0x4D  ; Direction of the snake's movement (0x4D corresponds to 'Right') (Used in 'move_snake' subroutine)
+snake_len     dw 10    ; Initial length of the snake (starting with a length of 10) (Used in the 'move_snake' and 'draw_snake' subroutines)
+snake_body_pos times 100 dw 0  ; Array holding the positions of the snake's body parts (initialized with 0) (Used in the 'move_snake', 'draw_snake', 'collision_check' subroutines)
+tail_pos      dw 0     ; Position of the snake's tail (Used in 'move_snake' and 'draw_snake' subroutines)
+speed_level   dw 1     ; Speed level of the game (1 is the initial speed) (Used in the 'game_loop' subroutine for controlling game speed)
+last_key      db 0     ; Stores the last key pressed by the user for direction control (Used in the 'handle_input' and 'game_loop' subroutines)
+
+
 clrscn:
+    ; Clears the screen by filling it with spaces
     push ax
     push cx
     push di
     mov ax, 0xB800
     mov es, ax
     xor di, di
-    mov ax, 0x0720     ; space + attr=07h (white)
-    mov cx, 2000       ; 80*25
+    mov ax, 0x0720
+    mov cx, 2000
     rep stosw
     pop di
     pop cx
     pop ax
     ret
 
-; print ASCIIZ string at DS:SI
 print_str:
+    ; Prints a string on the screen using BIOS interrupt
     push ax
 .loop_ps:
     lodsb
@@ -35,20 +44,20 @@ print_str:
     jz .done_ps
     mov ah, 0x0E
     mov bh, 0
-    mov bl, 7         ; white for text
+    mov bl, 7
     int 0x10
     jmp .loop_ps
 .done_ps:
     pop ax
     ret
 
-; wait for Enter/Esc
 wait_enter_esc:
+    ; Waits for the user to press Enter or Esc
     mov ah, 0
     int 0x16
-    cmp al, 0x0D      ; Enter
+    cmp al, 0x0D
     je .entered
-    cmp al, 0x1B      ; Esc
+    cmp al, 0x1B
     je .exited
     jmp wait_enter_esc
 .entered:
@@ -57,8 +66,8 @@ wait_enter_esc:
     mov ax, 0x4C00
     int 0x21
 
-; Draw complete border (red)
 DrawFrame:
+    ; Draws the frame of the game (top, sides, bottom, corners)
     call DrawTop
     call DrawSides
     call DrawBottom
@@ -66,10 +75,11 @@ DrawFrame:
     ret
 
 DrawTop:
+    ; Draws the top border of the game screen
     xor di, di
     mov cx, 80
 .DT:
-    mov byte [es:di], 0xCD      ; ═
+    mov byte [es:di], 0xCD
     mov al, [border_col]
     mov byte [es:di+1], al
     add di, 2
@@ -77,26 +87,25 @@ DrawTop:
     ret
 
 DrawSides:
+    ; Draws the left and right side borders of the game screen
     mov cx, 23
-    mov di, 160        ; start of row1
+    mov di, 160
 .VS:
-    ; left border
-    mov byte [es:di], 0xBA      ; ║
+    mov byte [es:di], 0xBA
     mov al, [border_col]
     mov byte [es:di+1], al
-    ; right border
     mov si, di
-    add si, 158                 ; 79*2
+    add si, 158
     mov byte [es:si], 0xBA
     mov al, [border_col]
     mov byte [es:si+1], al
-    ; next row
     add di, 160
     loop .VS
     ret
 
 DrawBottom:
-    mov di, 3840      ; start of row24
+    ; Draws the bottom border of the game screen
+    mov di, 3840
     mov cx, 80
 .DB:
     mov byte [es:di], 0xCD
@@ -107,35 +116,29 @@ DrawBottom:
     ret
 
 DrawCorners:
-    ; TL at 0
+    ; Draws the four corners of the game screen
     mov di, 0
-    mov byte [es:di], 0xC9      ; ╔
+    mov byte [es:di], 0xC9
     mov al, [border_col]
     mov byte [es:di+1], al
-
-    ; TR at 158
     mov di, 158
-    mov byte [es:di], 0xBB      ; ╗
+    mov byte [es:di], 0xBB
     mov al, [border_col]
     mov byte [es:di+1], al
-
-    ; BL at 3840
     mov di, 3840
-    mov byte [es:di], 0xC8      ; ╚
+    mov byte [es:di], 0xC8
     mov al, [border_col]
     mov byte [es:di+1], al
-
-    ; BR at 3998
     mov di, 3998
-    mov byte [es:di], 0xBC      ; ╝
+    mov byte [es:di], 0xBC
     mov al, [border_col]
     mov byte [es:di+1], al
     ret
 
-; clear interior rows1–23, cols1–78
 ClearInterior:
-    mov di, 160+2      ; row1,col1
-    mov ax, 0x0720     ; space + white
+    ; Clears the interior of the game screen (removes snake and other elements)
+    mov di, 160+2
+    mov ax, 0x0720
     mov cx, 23
 .R1:
     mov dx, 78
@@ -144,24 +147,173 @@ ClearInterior:
     add di, 2
     dec dx
     jnz .C1
-    ; move to next row start (current di is at column79; add 4 to reach next row's column1)
     add di, 4
     dec cx
     jnz .R1
     ret
 
-;-------------- MAIN --------------
+GameLoop:
+    ; Main game loop that handles input, updates the game state, and redraws
+    mov byte [last_key], 0
+    call HandleInput
+    call UpdateSnake
+    call DrawSnake
+    call Delay
+    jmp GameLoop
+
+HandleInput:
+    ; Handles user input (left, right, up, down, or no input)
+    mov ah, 0x01
+    int 0x16
+    jz .no_input
+
+.get_key:
+    mov ah, 0x00
+    int 0x16
+    cmp ah, [last_key]
+    je .no_input
+    mov [last_key], ah
+    cmp ah, 0x4B
+    je .try_left
+    cmp ah, 0x4D
+    je .try_right
+    cmp ah, 0x48
+    je .try_up
+    cmp ah, 0x50
+    je .try_down
+    ret
+
+.try_left:
+    cmp byte [current_dir], 0x4D
+    jne .update_dir
+    ret
+.try_right:
+    cmp byte [current_dir], 0x4B
+    jne .update_dir
+    ret
+.try_up:
+    cmp byte [current_dir], 0x50
+    jne .update_dir
+    ret
+.try_down:
+    cmp byte [current_dir], 0x48
+    jne .update_dir
+    ret
+
+.update_dir:
+    ; Updates the direction based on user input
+    mov [current_dir], ah
+    ret
+
+.no_input:
+    ret
+
+UpdateSnake:
+    ; Updates the position of the snake based on its direction and length
+    mov bx, [snake_len]
+    dec bx
+    shl bx, 1
+    mov ax, [snake_body_pos + bx]
+    mov [tail_pos], ax
+    mov cx, [snake_len]
+    dec cx
+    mov si, cx
+    shl si, 1
+.move_loop:
+    mov ax, [snake_body_pos + si - 2]
+    mov [snake_body_pos + si], ax
+    sub si, 2
+    loop .move_loop
+    mov di, [snake_body_pos]
+    cmp byte [current_dir], 0x4B
+    je .left_dir
+    cmp byte [current_dir], 0x4D
+    je .right_dir
+    cmp byte [current_dir], 0x48
+    je .up_dir
+    cmp byte [current_dir], 0x50
+    je .down_dir
+
+.left_dir:
+    sub di, 2
+    jmp .check_collision
+.right_dir:
+    add di, 2
+    jmp .check_collision
+.up_dir:
+    sub di, 160
+    jmp .check_collision
+.down_dir:
+    add di, 160
+
+.check_collision:
+    ; Checks if the snake has collided with the border or itself
+    cmp di, 160
+    jl .game_over
+    cmp di, 3840
+    jge .game_over
+    mov ax, di
+    mov bx, 160
+    xor dx, dx
+    div bx
+    cmp dx, 2
+    jle .game_over
+    cmp dx, 158
+    jge .game_over
+    mov [snake_body_pos], di
+    ret
+
+.game_over:
+    ; Ends the game if a collision is detected
+    mov ax, 0x4C00
+    int 0x21
+
+Delay:
+    ; Introduces a delay in the game loop to control game speed
+    push cx
+    push dx
+    mov dx, [speed_level]
+    shl dx, 1
+.outer_delay:
+    mov cx, 0x7FFF
+.inner_delay:
+    dec cx
+    jnz .inner_delay
+    dec dx
+    jnz .outer_delay
+    pop dx
+    pop cx
+    ret
+
+DrawSnake:
+    ; Draws the snake on the screen (head and body)
+    mov di, [tail_pos]
+    mov ax, 0x0720
+    mov [es:di], ax
+    mov di, [snake_body_pos]
+    mov al, [snake_head]
+    mov ah, [snake_color]
+    mov [es:di], ax
+    mov cx, [snake_len]
+    dec cx
+    mov si, 2
+.draw_body:
+    mov di, [snake_body_pos + si]
+    mov al, [snake_body]
+    mov ah, [snake_color]
+    mov [es:di], ax
+    add si, 2
+    loop .draw_body
+    ret
+
 start:
-    ; DS = CS for data
+    ; Starts the game, initializing the screen and waiting for user input
     mov ax, cs
     mov ds, ax
-    ; ES = B800h for video
     mov ax, 0xB800
     mov es, ax
 
-    ; splash
     call clrscn
-    ; print title
     mov ah,02h
     mov bh,0
     mov dh,10
@@ -169,7 +321,6 @@ start:
     int 0x10
     mov si, title
     call print_str
-    ; print prompt
     mov ah,02h
     mov bh,0
     mov dh,12
@@ -177,15 +328,18 @@ start:
     int 0x10
     mov si, prompt
     call print_str
-    ; wait
     call wait_enter_esc
 
-    ; init game view
 init_game:
+    ; Initializes the game state and starts the main game loop
     call clrscn
     call DrawFrame
     call ClearInterior
-    ; hang
-    jmp $
-
-
+    mov di, 12*160 + 40*2
+    mov [snake_body_pos], di
+    sub di, 2
+    mov [snake_body_pos + 2], di
+    sub di, 2
+    mov [snake_body_pos + 4], di
+    
+    jmp GameLoop
