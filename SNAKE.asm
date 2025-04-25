@@ -1,5 +1,4 @@
 org 0x100
-bits 16
 
 jmp start
 
@@ -18,7 +17,43 @@ tail_pos      dw 0     ; Position of the snake's tail (Used in 'move_snake' and 
 speed_level   dw 1     ; Speed level of the game (1 is the initial speed) (Used in the 'game_loop' subroutine for controlling game speed)
 last_key      db 0     ; Stores the last key pressed by the user for direction control (Used in the 'handle_input' and 'game_loop' subroutines)
 
+game_over_lines:
+    db 0xC9,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xBB,0  
+    db 0xBA,' GAME OVER ',0xBA,0                                           
+    db 0xC8,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xCD,0xBC,0  
+box_attr db 0x4E  ; Yellow on red
 
+GameOverScreen:
+    ; Center position: row 12, column 34 (80-13)/2=33.5 → 34
+    mov di, 12*160 + 34*2  ; 12th row (12*160=0x960), 34th column (34*2=0x44)
+    mov si, game_over_lines
+    mov bl, [box_attr]
+    mov cx, 3               ; 3 lines
+
+.draw_lines:
+    push cx
+.draw_chars:
+    lodsb                   ; Read character
+    test al, al             ; Check for null terminator
+    jz .next_line
+    mov [es:di], al         ; Draw character
+    mov [es:di+1], bl       ; Set attribute
+    add di, 2               ; Next screen position
+    jmp .draw_chars
+
+.next_line:
+    add di, 160 - (13*2)    ; Move to next line: 160 - 26 = 134 bytes
+    pop cx
+    loop .draw_lines
+
+    ; Wait for any key
+    mov ah, 0
+    int 0x16
+    
+    ; Exit to DOS
+    mov ax, 0x4C00
+    int 0x21
+	
 clrscn:
     ; Clears the screen by filling it with spaces
     push ax
@@ -208,65 +243,83 @@ HandleInput:
 .no_input:
     ret
 
+;--------------------------- UPDATE SNAKE POSITION ------------------------
 UpdateSnake:
-    ; Updates the position of the snake based on its direction and length
+    ; Save tail position for erasing
     mov bx, [snake_len]
-    dec bx
-    shl bx, 1
+    dec bx                  
+    shl bx, 1               
     mov ax, [snake_body_pos + bx]
     mov [tail_pos], ax
+    
+    ; Move body segments
     mov cx, [snake_len]
     dec cx
     mov si, cx
-    shl si, 1
+    shl si, 1           
 .move_loop:
     mov ax, [snake_body_pos + si - 2]
     mov [snake_body_pos + si], ax
     sub si, 2
     loop .move_loop
+    
+    ; Update head position based on direction
     mov di, [snake_body_pos]
-    cmp byte [current_dir], 0x4B
+    cmp byte [current_dir], 0x4B    ; Left
     je .left_dir
-    cmp byte [current_dir], 0x4D
+    cmp byte [current_dir], 0x4D    ; Right
     je .right_dir
-    cmp byte [current_dir], 0x48
+    cmp byte [current_dir], 0x48    ; Up
     je .up_dir
-    cmp byte [current_dir], 0x50
+    cmp byte [current_dir], 0x50    ; Down
     je .down_dir
 
 .left_dir:
-    sub di, 2
+    sub di, 2           
     jmp .check_collision
 .right_dir:
     add di, 2
     jmp .check_collision
 .up_dir:
-    sub di, 160
+    sub di, 160         
     jmp .check_collision
 .down_dir:
-    add di, 160
+    add di, 160         
 
 .check_collision:
-    ; Checks if the snake has collided with the border or itself
-    cmp di, 160
+    ; Wall collision check
+    cmp di, 160         
     jl .game_over
-    cmp di, 3840
+    cmp di, 3840        
     jge .game_over
     mov ax, di
     mov bx, 160
     xor dx, dx
-    div bx
-    cmp dx, 2
+    div bx              
+    cmp dx, 2           
     jle .game_over
-    cmp dx, 158
+    cmp dx, 158         
     jge .game_over
+
+    ; Body collision check (NEW CODE)
+    mov cx, [snake_len]
+    dec cx              ; Skip head (index 0)
+    jz .update_head     ; No body to check if length 1
+    mov si, 2           ; Start at first body segment (index 1)
+.body_check:
+    mov ax, [snake_body_pos + si]
+    cmp di, ax          ; Compare head position with body segment
+    je .game_over
+    add si, 2           ; Next body segment
+    loop .body_check
+
+.update_head:
+    ; Update head position
     mov [snake_body_pos], di
     ret
 
 .game_over:
-    ; Ends the game if a collision is detected
-    mov ax, 0x4C00
-    int 0x21
+	call GameOverScreen
 
 Delay:
     ; Introduces a delay in the game loop to control game speed
