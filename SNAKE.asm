@@ -28,6 +28,8 @@ box_attr db 0x4E  ; Yellow on red
 food_pos      dw 0       ; Position of current food
 food_char     db 0x04    ; Diamond character (♦)
 food_color    db 0x0C    ; Light red color
+rng_seed   dw 0xACE1   ; Initial seed (can be anything non-zero)
+
 
 ;score counter
 score         dw 0              ; Current score
@@ -77,13 +79,11 @@ GenerateFood:
     ret
 
 GetRandom:
-    ; Simple pseudo-random number generator using timer ticks
-    push es
-    mov ax, 0x0040
-    mov es, ax
-    mov ax, [es:0x006C]  ; BIOS timer ticks
-    rol ax, 5            ; Rotate for better randomness
-    pop es
+    mov ax, [rng_seed]
+    mov dx, 0x4D35     ; Multiplier (use 214013 for better results but needs 32-bit)
+    mul dx
+    add ax, 0x8A3D     ; Increment
+    mov [rng_seed], ax
     ret
 
 ;--------------------------- DRAW FOOD ------------------------------------
@@ -400,8 +400,8 @@ UpdateSnake:
     inc word [snake_len]
     call GenerateFood
     ; Food collision - increase length and generate new food
-    inc word [snake_len]
-    call GenerateFood
+    ;inc word [snake_len]
+    ;call GenerateFood
     jmp .skip_tail_erase
     
 .no_food:
