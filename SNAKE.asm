@@ -2,9 +2,30 @@ org 0x100
 
 jmp start
 
-; Data section
-title        db '   Snake Game BY sdnr   ', 0    ; Title of the game, displayed at the start (Used in the 'start_screen' subroutine)
-prompt       db ' Press [Enter] to Start or [Esc] to Exit ', 0  ; Prompt message for the user to start or exit the game (Used in the 'start_screen' subroutine)
+; Data section with corrected ASCII art
+title_art:
+    db '              /\^/\^\          ',0
+    db '            _|__|  O|          ',0
+    db '      \/  /~     \_/ \         ',0
+    db '       \_|_________/   \       ',0
+    db '         \_______      \       ',0
+    db '                 \      \      ',0
+    db '                  |     |      ',0
+    db '                 /      /      ',0
+    db '                /     /        ',0
+    db '              /      /         ',0
+    db '             /     /           ',0
+    db '           /     /             ',0
+    db '          /     /              ',0
+    db '         (      (              ',0
+    db '          \      ~-____-~      ',0
+    db '            ~-_           _-~  ',0
+    db '               ~--______-~     ',0
+
+title        db '  S N A K E   G A M E    ',0  
+prompt       db '[ENTER] Start  [ESC] Exit ',0
+
+
 border_col   db 0x0C  ; Color code for the border (red in this case, using BIOS color codes) (Used in the 'draw_border' subroutine)
 snake_head    db 0x01  ; Character code for the snake's head (Used in the 'draw_snake' subroutine)
 snake_body    db 0x02  ; Character code for the snake's body (Used in the 'draw_snake' subroutine)
@@ -27,7 +48,7 @@ box_attr db 0x4E  ; Yellow on red
 ; Food generation data
 food_pos      dw 0       ; Position of current food
 food_char     db 0x04    ; Diamond character (♦)
-food_color    db 0x0C    ; Light red color
+food_color    db 0x85    ; Light red color
 rng_seed   dw 0xACE1   ; Initial seed (can be anything non-zero)
 
 
@@ -35,6 +56,12 @@ rng_seed   dw 0xACE1   ; Initial seed (can be anything non-zero)
 score         dw 0              ; Current score
 score_str     db 'SCORE: '      ; Score label
 score_buffer  db '00000$'       ; Buffer for score digits (5 digits max)
+
+; Add this to your data section
+start_sound_freqs dw 1000, 1500, 2000  ; Frequency sequence
+start_sound_dur   dw 3, 2, 1           ; Duration sequence (in ticks)
+
+
 
 ;--------------------------- FOOD GENERATION ------------------------------
 GenerateFood:
@@ -116,6 +143,50 @@ GameOverScreen:
     add di, 160 - (13*2)    ; Move to next line: 160 - 26 = 134 bytes
     pop cx
     loop .draw_lines
+	
+	
+; Alternative multi-tone losing sound
+push ax
+push cx
+push dx
+
+; First tone
+mov al, 0xB6
+out 0x43, al
+mov ax, 0xA040     ; 400Hz
+out 0x42, al
+mov al, ah
+out 0x42, al
+in al, 0x61
+or al, 0x03
+out 0x61, al
+mov cx, 0x2000
+.delay1: loop .delay1
+
+; Second tone
+mov ax, 0xD120     ; 300Hz
+out 0x42, al
+mov al, ah
+out 0x42, al
+mov cx, 0x3000
+.delay2: loop .delay2
+
+; Final tone
+mov ax, 0xE948     ; 200Hz
+out 0x42, al
+mov al, ah
+out 0x42, al
+mov cx, 0x4000
+.delay3: loop .delay3
+
+; Disable speaker
+in al, 0x61
+and al, 0xFC
+out 0x61, al
+
+pop dx
+pop cx
+pop ax
 
     ; Wait for any key
     mov ah, 0
@@ -158,16 +229,66 @@ print_str:
     ret
 
 wait_enter_esc:
-    ; Waits for the user to press Enter or Esc
     mov ah, 0
-    int 0x16
-    cmp al, 0x0D
-    je .entered
-    cmp al, 0x1B
+    int 0x16                ; Wait for key
+    cmp al, 0x0D            ; Enter key
+    je .play_start_sound
+    cmp al, 0x1B            ; Esc key
     je .exited
     jmp wait_enter_esc
-.entered:
+
+.play_start_sound:
+    ; Play startup sound sequence
+    pusha
+    mov cx, 3               ; Number of tones
+    mov si, start_sound_freqs
+    mov di, start_sound_dur
+    
+.play_sequence:
+    mov bx, [si]            ; Frequency
+    mov dx, [di]            ; Duration
+    
+    ; Program PC speaker
+    mov al, 0xB6
+    out 0x43, al
+    mov ax, bx
+    out 0x42, al
+    mov al, ah
+    out 0x42, al
+    
+    ; Turn on speaker
+    in al, 0x61
+    or al, 0x03
+    out 0x61, al
+    
+    ; Wait duration
+    call .sound_delay
+    
+    ; Turn off speaker
+    in al, 0x61
+    and al, 0xFC
+    out 0x61, al
+    
+    add si, 2
+    add di, 2
+    loop .play_sequence
+    
+    popa
     ret
+
+.sound_delay:
+    push cx
+    mov cx, dx
+.delay_loop:
+    push cx
+    mov cx, 0x5000
+.inner_loop:
+    loop .inner_loop
+    pop cx
+    loop .delay_loop
+    pop cx
+    ret
+
 .exited:
     mov ax, 0x4C00
     int 0x21
@@ -398,10 +519,34 @@ UpdateSnake:
 	; Food collision detected - increase score and length
     add word [score], 1  ; Increase score by 1 points
     inc word [snake_len]
+	
+ push ax
+    push cx
+    ; Program PC speaker
+    mov al, 0xB6        ; Timer 2, Square wave
+    out 0x43, al
+    mov ax, 0x0A40      ; Frequency (1193180 Hz / 0x0A40 = ~800Hz)
+    out 0x42, al        ; Send low byte
+    mov al, ah
+    out 0x42, al        ; Send high byte
+    ; Enable speaker
+    in al, 0x61
+    or al, 0x03         ; Set bits 0 and 1
+    out 0x61, al
+    ; Keep sound on for short duration
+    mov cx, 0x2000      ; Adjust this value for duration
+.delay_loop:
+    nop
+    loop .delay_loop
+    ; Disable speaker
+    in al, 0x61
+    and al, 0xFC        ; Clear bits 0 and 1
+    out 0x61, al
+    
+    pop cx
+    pop ax
+
     call GenerateFood
-    ; Food collision - increase length and generate new food
-    ;inc word [snake_len]
-    ;call GenerateFood
     jmp .skip_tail_erase
     
 .no_food:
@@ -498,29 +643,60 @@ DrawSnake:
     ret
 
 start:
-    ; Starts the game, initializing the screen and waiting for user input
     mov ax, cs
     mov ds, ax
     mov ax, 0xB800
     mov es, ax
-
     call clrscn
-    mov ah,02h
-    mov bh,0
-    mov dh,10
-    mov dl,20
-    int 0x10
-    mov si, title
-    call print_str
-    mov ah,02h
-    mov bh,0
-    mov dh,12
-    mov dl,18
-    int 0x10
-    mov si, prompt
-    call print_str
-    call wait_enter_esc
 
+    ; Draw ASCII art
+    mov si, title_art         ; Source data
+    mov cx, 16                ; Number of lines
+    mov dh, 3                 ; Starting row
+    mov bl, 0x0E              ; Yellow color
+
+.draw_art:
+    ; Calculate screen position: DI = (dh * 160) + 20
+    mov ax, 160
+    mul dh
+    add ax, 40               ; Center at column 20 (20*2 bytes)
+    mov di, ax
+
+    ; Draw one line
+.draw_char:
+    lodsb                     ; Load character
+    test al, al               ; Check for null terminator
+    jz .next_line
+    mov ah, bl                ; Set color attribute
+    stosw                     ; Write to video memory
+    jmp .draw_char
+
+.next_line:
+    inc dh                   ; Move to next row
+    loop .draw_art
+
+    ; Draw title
+    mov si, title
+    mov di, 20*160 + 60      ; Row 20, column 30
+    mov cx, 25               ; Title length
+    mov ah, 0x0A             ; Green color
+.draw_title:
+    lodsb
+    stosw
+    loop .draw_title
+
+    ; Draw prompt
+    mov si, prompt
+    mov di, 22*160 + 50      ; Row 22, column 25
+    mov cx, 25               ; Prompt length
+    mov ah, 0x0C             ; Red color
+.draw_prompt:
+    lodsb
+    stosw
+    loop .draw_prompt
+
+    call wait_enter_esc
+    jmp init_game
 init_game:
     ; Initializes the game state and starts the main game loop
     call clrscn
