@@ -14,7 +14,7 @@ A classic Snake Game implemented in Assembly Language for the 8088 platform. Thi
 - BIOS/DOS interrupts for input/output
 - Game loop logic
 - Collision detection
-- Basic pseudo-random generation
+- Random food generation
 
 🚀 Getting Started
 1. Clone the repo:
