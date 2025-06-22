@@ -2,11 +2,18 @@
 
 A classic Snake Game implemented in Assembly Language for the 8088 platform. This project is part of the COAL (Computer Organization & Assembly Language) course at FAST-NU Lahore, Spring 2025.
 
+
+
 ```HomeScreen```
 ![Home Screen](https://github.com/sdnr1418/8088-Snake-Game/blob/main/Screenshot%202025-06-22%20205249.png)
 
+
+
 ```GameScreen```
 ![Game Screen](https://github.com/sdnr1418/8088-Snake-Game/blob/main/Screenshot%202025-06-22%20205604.png)
+
+
+
 
 📋 Features
 - Real-time keyboard input using arrow keys
